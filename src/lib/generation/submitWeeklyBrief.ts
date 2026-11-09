@@ -11,6 +11,9 @@ export interface BriefInput {
   promotions: string;
   events: string;
   additionalInstructions: string;
+  /** Historical replay runs never produce items eligible for reminders —
+   * see the isHistoricalReplay check in processDueReminders.ts. */
+  isHistoricalReplay?: boolean;
 }
 
 export interface SubmitBriefResult {
@@ -151,7 +154,7 @@ export async function submitWeeklyBrief(input: BriefInput): Promise<SubmitBriefR
           sourceReference: item.sourceReference,
           needsClarification: item.needsClarification,
           clarificationNote: item.clarificationNote ?? "",
-          isHistoricalReplay: false,
+          isHistoricalReplay: input.isHistoricalReplay ?? false,
         });
       }
       generatedCount++;
@@ -194,6 +197,7 @@ async function upsertBrief(input: BriefInput, existingId?: string): Promise<stri
       promotions: input.promotions,
       events: input.events,
       additionalInstructions: input.additionalInstructions,
+      isHistoricalReplay: input.isHistoricalReplay ?? false,
     })
     .returning();
   if (!row) throw new GenerationError("Failed to save the weekly brief.");
