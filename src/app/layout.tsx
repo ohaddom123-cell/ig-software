@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: "/brief", label: "Weekly Brief" },
   { href: "/calendar", label: "Calendar" },
   { href: "/approve", label: "Approve" },
+  { href: "/reels", label: "Reels" },
   { href: "/historical-validation", label: "Historical Validation" },
   { href: "/time-tracking", label: "Time Tracking" },
   { href: "/settings", label: "Settings" },

@@ -20,6 +20,7 @@
     "@remotion/captions": "^4.0.543",
     "@remotion/install-whisper-cpp": "^4.0.543",
     "@remotion/renderer": "^4.0.543",
+    "@vercel/blob": "^2.9.0",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
     "drizzle-orm": "^0.44.6",
