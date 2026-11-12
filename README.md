@@ -45,7 +45,7 @@ of this on a live week — the tool supports it, but hasn't done it.
   with `zod` before anything touches the database. The model is given pre-computed posting
   slots (see below) rather than asked to do date/cadence math itself — see "Reliability
   decisions."
-- **Vercel Cron** (`vercel.json`, every 15 minutes) hits `/api/cron/reminders`, authenticated
+- **Vercel Cron** (`vercel.json`, four times daily — 07:00/11:00/15:00/19:00 UTC, the max cadence Vercel Hobby plans allow) hits `/api/cron/reminders`, authenticated
   via a `CRON_SECRET` bearer token.
 - **Notification provider abstraction** (`src/lib/notifications/`) — `dryrun` (logs, never
   sends; the default) and `email` (Resend) implemented; swapping in WhatsApp later means
@@ -152,7 +152,7 @@ projects run) is Vercel:
 2. Set every env var from `.env.example` in the Vercel project settings — **including
    `CRON_SECRET`**, which Vercel Cron must send as `Authorization: Bearer <value>` for
    `/api/cron/reminders` to accept its requests.
-3. `vercel.json` already defines the 15-minute cron schedule — no extra setup needed once
+3. `vercel.json` already defines four daily cron checks (Hobby-tier compatible — Hobby only allows up to once/day per cron entry, so this uses four separate entries instead of one frequent one) — no extra setup needed once
    `CRON_SECRET` matches on both sides.
 4. Leave `REMINDERS_LIVE=false` (or unset) until you've run `/historical-validation` against
    real past weeks and are satisfied with the output.
