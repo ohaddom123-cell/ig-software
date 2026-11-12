@@ -22,6 +22,7 @@ beforeEach(async () => {
     TRUNCATE TABLE
       reminder_deliveries,
       content_items,
+      reel_items,
       weekly_briefs,
       historical_posts,
       posting_schedules,
