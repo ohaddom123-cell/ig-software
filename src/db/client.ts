@@ -1,15 +1,35 @@
-import { drizzle } from "drizzle-orm/postgres-js";
+import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
 
-const connectionString = process.env.DATABASE_URL;
+type Db = PostgresJsDatabase<typeof schema>;
 
-if (!connectionString) {
-  throw new Error(
-    "DATABASE_URL is not set. Copy .env.example to .env.local and point it at a Postgres database (a Supabase connection string works directly).",
-  );
+let real: Db | null = null;
+
+function getDb(): Db {
+  if (real) return real;
+
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error(
+      "DATABASE_URL is not set. Copy .env.example to .env.local and point it at a Postgres database (a Supabase connection string works directly).",
+    );
+  }
+
+  const queryClient = postgres(connectionString, { max: 5 });
+  real = drizzle(queryClient, { schema });
+  return real;
 }
 
-const queryClient = postgres(connectionString, { max: 5 });
-
-export const db = drizzle(queryClient, { schema });
+/**
+ * Lazily initialized so importing this module (which every route does,
+ * directly or transitively) never throws during `next build`'s page-data
+ * collection, when DATABASE_URL legitimately isn't set yet — only an
+ * actual query attempt should fail, with a message that says what's
+ * missing. Same lazy pattern as lib/anthropic.ts.
+ */
+export const db: Db = new Proxy({} as Db, {
+  get(_target, prop, receiver) {
+    return Reflect.get(getDb(), prop, receiver);
+  },
+});
