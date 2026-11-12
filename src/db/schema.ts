@@ -8,6 +8,7 @@ import {
   timestamp,
   date,
   time,
+  jsonb,
   pgEnum,
   uniqueIndex,
   index,
@@ -210,6 +211,67 @@ export const timeTrackingEntries = pgTable(
   (t) => [index("time_tracking_client_idx").on(t.clientId)],
 );
 
+export const reelStatusEnum = pgEnum("reel_status", [
+  "uploaded",
+  "processing",
+  "ready_for_review",
+  "approved",
+  "rejected",
+  "failed",
+]);
+
+/**
+ * Raw footage in, captioned Reel out. Deliberately a separate table from
+ * contentItems rather than a shared "content" shape — the two have almost
+ * no fields in common (a caption's unit of work is text; a reel's is a
+ * multi-step render pipeline with its own failure modes), so sharing a
+ * table would mean a pile of nullable columns that only apply to one kind.
+ */
+export const reelItems = pgTable(
+  "reel_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+
+    rawFootageUrl: text("raw_footage_url").notNull(),
+    status: reelStatusEnum("status").notNull().default("uploaded"),
+    errorMessage: text("error_message").notNull().default(""),
+
+    // Non-silent segments computed from the raw footage, in source-timeline
+    // milliseconds: [{ startMs, endMs }, ...]. Null until processing runs.
+    keepSegments: jsonb("keep_segments").$type<{ startMs: number; endMs: number }[]>(),
+
+    // Word-level captions (the Caption[] shape from @remotion/captions),
+    // already remapped onto the TRIMMED (post-cut) timeline so they line
+    // up with keepSegments as rendered, not the raw source.
+    captions: jsonb("captions").$type<
+      {
+        text: string;
+        startMs: number;
+        endMs: number;
+        timestampMs: number | null;
+        confidence: number | null;
+      }[]
+    >(),
+
+    renderedVideoUrl: text("rendered_video_url"),
+
+    // "approved"/"rejected" live on `status` above, alongside the pipeline
+    // states — one state field, not two overlapping ones. approvedAt is
+    // just the audit timestamp for when that transition happened.
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("reel_items_client_idx").on(t.clientId),
+    index("reel_items_status_idx").on(t.status),
+  ],
+);
+
 // --- relations (for ergonomic query().with() usage) ---
 
 export const clientsRelations = relations(clients, ({ many }) => ({
@@ -218,6 +280,11 @@ export const clientsRelations = relations(clients, ({ many }) => ({
   briefs: many(weeklyBriefs),
   contentItems: many(contentItems),
   timeTracking: many(timeTrackingEntries),
+  reelItems: many(reelItems),
+}));
+
+export const reelItemsRelations = relations(reelItems, ({ one }) => ({
+  client: one(clients, { fields: [reelItems.clientId], references: [clients.id] }),
 }));
 
 export const postingSchedulesRelations = relations(postingSchedules, ({ one }) => ({
