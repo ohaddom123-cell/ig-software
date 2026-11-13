@@ -16,7 +16,11 @@ function getDb(): Db {
     );
   }
 
-  const queryClient = postgres(connectionString, { max: 5 });
+  // `prepare: false` is required when connecting through Supabase's (or any
+  // PgBouncer-style) transaction-mode pooler, which doesn't support
+  // session-level prepared statements. Harmless on a direct connection too,
+  // so it's left on unconditionally rather than branching on the host.
+  const queryClient = postgres(connectionString, { max: 5, prepare: false });
   real = drizzle(queryClient, { schema });
   return real;
 }
