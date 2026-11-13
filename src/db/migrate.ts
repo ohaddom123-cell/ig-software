@@ -7,7 +7,9 @@ async function main() {
   if (!connectionString) {
     throw new Error("DATABASE_URL is not set.");
   }
-  const sql = postgres(connectionString, { max: 1 });
+  // See src/db/client.ts for why prepare: false is required against
+  // Supabase's (or any PgBouncer-style) transaction-mode pooler.
+  const sql = postgres(connectionString, { max: 1, prepare: false });
   const db = drizzle(sql);
   console.log("Running migrations...");
   await migrate(db, { migrationsFolder: "./src/db/migrations" });

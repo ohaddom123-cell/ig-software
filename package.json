@@ -5,7 +5,7 @@
   "description": "AI content work-plan generator with approval-gated posting reminders (V1)",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "tsx src/db/migrate.ts && next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
