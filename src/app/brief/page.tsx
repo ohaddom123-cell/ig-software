@@ -14,6 +14,11 @@ export default async function BriefPage() {
       <p className="mt-1 text-sm text-slate-500">
         Rough bullet points are fine — this doesn&apos;t need to be polished writing.
       </p>
+      <p className="mt-2 rounded-md bg-teal-50 px-3 py-2 text-sm text-teal-800">
+        This step is optional. Every active client&apos;s plan for next week now generates itself
+        automatically — use this form only if there&apos;s a specific idea, promotion, or event
+        you want folded into that plan.
+      </p>
 
       {activeClients.length === 0 ? (
         <p className="mt-6 text-sm text-slate-500">

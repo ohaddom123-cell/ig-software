@@ -14,7 +14,7 @@ not what was attempted.
 |---|---|
 | Client profiles, brand guidelines, posting schedules | **Implemented & tested** |
 | Historical content import (CSV + single entry) | **Implemented & tested** |
-| Weekly brief intake | **Implemented & tested** |
+| Weekly brief intake | **Implemented & tested** — now automatic by default (see "Automatic weekly planning" below); the manual form still exists for anyone who wants to fold in a specific idea/promotion |
 | AI calendar generation (Claude, structured output, zod-validated) | **Implemented**; generation calls themselves are **not covered by automated tests against the real API** (tests mock the Anthropic boundary — see Testing). Needs `ANTHROPIC_API_KEY` to actually run. |
 | Approval workflow (approve/reject/edit, edit invalidates approval) | **Implemented & tested** |
 | Scheduled reminders (idempotent, retry, timezone/DST-correct) | **Implemented & tested**, including a full live smoke test (see below) |
@@ -28,7 +28,8 @@ not what was attempted.
 | Reels: silence-cut + Hebrew captions (Remotion) | **Implemented & type-checked against real installed package APIs; NOT run end-to-end against a real video in this session** — see "Reels" below |
 | Reels: storage (Vercel Blob upload) | **Implemented, blocked** — provisioning a Blob store failed with a 403 (account/plan permission); see "Known gaps" |
 | Reels: actual rendering on Vercel | **Not proven to work within serverless limits** — see "Known gaps" |
-| Metricool (scheduling/publishing, analytics) | **Not integrated** — real tool access was available and the integration was scoped in detail, but not built; see "Known gaps" |
+| Metricool (scheduling/publishing, analytics) | **Decided against** — the integration was scoped in real detail (see git history), but the client explicitly does not want posts publishing themselves, so it was deliberately not built rather than left as a gap |
+| Automatic weekly planning (`/api/cron/weekly-brief`) | **Implemented & tested** — every active client's plan for next week generates itself on a schedule, no manual brief submission required; approval is still manual by design |
 
 **Live URL:** https://ig-software.vercel.app (Basic Auth — ask for the username/password, set during deployment and not written down here since this file is public in the repo)
 
@@ -51,8 +52,11 @@ of this on a live week — the tool supports it, but hasn't done it.
   with `zod` before anything touches the database. The model is given pre-computed posting
   slots (see below) rather than asked to do date/cadence math itself — see "Reliability
   decisions."
-- **Vercel Cron** (`vercel.json`, four times daily — 07:00/11:00/15:00/19:00 UTC, the max cadence Vercel Hobby plans allow) hits `/api/cron/reminders`, authenticated
-  via a `CRON_SECRET` bearer token.
+- **Vercel Cron** (`vercel.json`) hits two endpoints, both authenticated via a `CRON_SECRET`
+  bearer token: `/api/cron/reminders` four times daily (07:00/11:00/15:00/19:00 UTC, the max
+  cadence Vercel Hobby plans allow per entry) and `/api/cron/weekly-brief` once a week
+  (Thursdays 09:00 UTC) to auto-generate next week's content plan — see "Automatic weekly
+  planning" below.
 - **Notification provider abstraction** (`src/lib/notifications/`) — `dryrun` (logs, never
   sends; the default) and `email` (Resend) implemented; swapping in WhatsApp later means
   implementing the same interface, nothing else changes.
@@ -61,6 +65,27 @@ of this on a live week — the tool supports it, but hasn't done it.
   system would be exactly the "unnecessary enterprise permissions" the spec says to avoid.
   Fails closed (503) if credentials aren't configured, rather than silently serving the app
   open to the internet.
+
+### Automatic weekly planning
+
+The `/brief` form used to be the only way to get a content plan — someone had to remember to
+open the site every week. `/api/cron/weekly-brief` now generates next week's plan for every
+active client on its own schedule, straight from that client's saved profile:
+
+- Runs once a week (Thursdays), computing next week's Sunday as the target week — far enough
+  ahead that there's a weekend to review before the first post is due.
+- Calls the exact same `submitWeeklyBrief` function the manual form uses, with every brief
+  field left blank — not a parallel/duplicate code path to keep in sync.
+- Because of that, all of `submitWeeklyBrief`'s existing safety behavior applies for free: a
+  client who already has a brief for that week (e.g. someone used the manual form) is a true
+  no-op, and nothing ever overwrites an already-approved item.
+- A client with no active posting schedule is reported as "skipped," not an error — there's
+  nothing to generate until a schedule exists.
+- One client's generation failing (e.g. a transient AI API error) is caught and reported per
+  client; it never stops the other clients in the same run.
+- **Approval is still entirely manual.** This removes the "remember to submit a brief" step,
+  not the "review before anything is real" step — that gate was a deliberate requirement, not
+  something this automates away.
 
 ### Reels (silence-cut, captioned, approval-gated video)
 
@@ -129,7 +154,7 @@ these at runtime instead of bundling them).
 
 ## Testing
 
-52 tests, **all passing against a real local Postgres database** (not mocks) — the only
+58 tests, **all passing against a real local Postgres database** (not mocks) — the only
 mocked boundary is the Anthropic API call itself, in the three tests that exercise full
 brief submission. Run them yourself:
 
@@ -153,6 +178,8 @@ Coverage, by file:
 - `reels-segments.test.ts` (15 tests) — silence-to-keep-segment math: padding, merging, short-pause preservation, leading/trailing silence, timeline remapping
 - `reels-remap-captions.test.ts` (5 tests) — caption timestamps shift correctly across a cut; captions fully inside a removed silence are dropped
 - `reels-silence-parse.test.ts` (4 tests) — ffmpeg's `silencedetect` stderr format parsed correctly, including a realistic multi-line transcript and a dangling unclosed silence
+- `weekly-brief-auto.test.ts` (5 tests) — next week's Sunday is computed correctly from any day of the week; active clients with a schedule generate, inactive clients are skipped entirely, clients with no schedule are reported "skipped" not "failed", running twice never duplicates items
+- `weekly-brief-auto-failure.test.ts` (1 test) — one client's generation failing is reported as `status: "failed"` and does not stop the rest of the run from completing
 
 One real bug was found and fixed while writing these: vitest's default parallel-file
 execution let two test files' `TRUNCATE` calls race against the same shared test database.
@@ -227,8 +254,8 @@ weeks and are satisfied with the output.
 2. **Import past content** (optional but recommended): same client page, paste CSV
    (`platform,caption,published_at,category,notes` — only `caption` is required) or add
    posts one at a time. Used as a style reference only, never as a source of current facts.
-3. **Submit a weekly brief**: `/brief` — rough bullet points are fine. Generates a draft
-   calendar.
+3. **Weekly plans now generate themselves** — nothing to do here by default. `/brief` still
+   exists if you want to fold a specific idea, promotion, or event into a given week.
 4. **Review and approve**: `/approve` — edit inline if needed (this resets approval), then
    approve or reject each item. Nothing downstream happens until you approve.
 5. **Check the calendar**: `/calendar` for a read-only chronological view.
@@ -278,13 +305,6 @@ video in a real deployment yet. Specifically:
   `.d.ts` files directly, not recalled from training) and the whole thing type-checks and
   builds cleanly — but nobody has fed it a real clip yet. Do that once (via `/reels`, once
   `BLOB_READ_WRITE_TOKEN` is set) before trusting it for something with a real deadline.
-- **Metricool was researched, not integrated.** Real MCP tool access to Metricool was
-  available in this session and the integration was scoped in detail — generate the content,
-  wait for approval, then call `createScheduledPost` (or `createScheduledPostForReview` for
-  Metricool's own native approval flow) to actually publish, instead of the current
-  reminder-to-post-manually flow. Not built. A clear, well-defined next phase, not a vague
-  idea — see the conversation history for the exact tool schemas and the tradeoffs between
-  Metricool's native approval system and this app's own.
 - **Raw footage input is a public URL, not a file upload.** Simpler, and sidesteps needing
   Blob storage working just to receive a file — but it means whoever submits a reel needs
   somewhere to put the raw footage first (Google Drive/Dropbox share link, etc.).
