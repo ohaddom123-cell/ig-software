@@ -7,3 +7,7 @@ node_modules
 next-env.d.ts
 .DS_Store
 coverage
+
+# whisper.cpp binary + downloaded model, built at runtime by transcribe.ts
+# (same category as node_modules — not source, shouldn't be committed)
+.whisper-cpp
