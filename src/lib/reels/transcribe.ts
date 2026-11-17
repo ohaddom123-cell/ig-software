@@ -60,17 +60,20 @@ async function downloadIvritModel(whisperHome: string): Promise<void> {
 }
 
 /**
- * Transcribes a local WAV file to word-level captions using whisper.cpp,
- * following @remotion/install-whisper-cpp's documented flow (install ->
- * download model -> transcribe -> toCaptions), with the ivrit.ai model as
- * a verified, licensed alternative to standard Whisper for Hebrew — see
+ * Transcribes a local WAV file to captions using whisper.cpp (install ->
+ * download model -> transcribe -> map to Caption[], not
+ * @remotion/install-whisper-cpp's own toCaptions() — see the comment
+ * below the transcribe() call for why), with the ivrit.ai model as a
+ * verified, licensed alternative to standard Whisper for Hebrew — see
  * HebrewTranscriptionModel above. Callers (render.ts, processReel.ts)
  * don't need to know which one is in use; this is the only place that
  * branches on it.
  *
- * NOT unit-tested — downloads a real model and shells out to a real
- * binary. See the reel pipeline's other pure-logic tests for what *is*
- * covered without real media.
+ * NOT covered by the automated (vitest) suite — downloads a real model
+ * and shells out to a real binary, which a unit test can't meaningfully
+ * fake. What *is* verified: this function, exactly as it stands, was run
+ * for real against a real Hebrew video through a real Sandbox worker —
+ * see README's "Reels" section for what that confirmed and found.
  */
 export async function transcribeToCaptions(
   wavPath: string,

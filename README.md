@@ -25,7 +25,7 @@ not what was attempted.
 | Database | **Implemented & tested** — schema, migrations, and the full workflow were run against a real local Postgres instance, not just designed on paper |
 | Email notifications (Resend) | **Implemented, not externally configured** — no `RESEND_API_KEY` exists for this to send through yet; dry-run provider is fully tested instead |
 | Deployed to Vercel | **Done** — live at the production URL below, auto-deploys on every push to `main` |
-| Reels: silence-cut + Hebrew captions (Remotion) | **Implemented & type-checked against real installed package APIs.** whisper.cpp compiling and the model downloading were verified for real inside an actual Vercel Sandbox (see "Reels" below) — the one link not yet proven end-to-end in this session is a full real-video run through the live site itself; see "Known gaps" |
+| Reels: silence-cut + Hebrew captions (Remotion) | **Implemented & verified end to end against a real Vercel Sandbox worker.** A real Hebrew video was processed through the full pipeline (download → silence-cut → whisper.cpp transcription → caption generation → Remotion render → upload) and the output was downloaded and checked with ffprobe; captions were confirmed clean, correct Hebrew. Three real defects (missing Chrome libraries, wrong asset-serving approach, Hebrew text corruption from a whisper.cpp flag) were found and fixed by this run — see "Reels" and "Known gaps" below |
 | Reels: storage (Supabase Storage, private buckets + signed URLs) | **Implemented & provisioned.** Replaces an earlier Vercel Blob attempt that was permanently blocked by a 403 (account/plan permission, confirmed not transient). Uses the same Supabase project `DATABASE_URL` already pointed at; the `reel-raw`/`reel-output` buckets exist and the full signed-upload → upload → signed-download round trip was verified for real against them this session. One real constraint found doing that: the project's free-tier plan caps uploads at 50MB/file — see "Known gaps" |
 | Reels: direct video upload (not just a URL import) | **Implemented** — browser uploads straight to Supabase Storage via a signed URL; URL import kept as a fallback, now with SSRF protection |
 | Reels: processing infrastructure | **Implemented & verified** — runs in a Vercel Sandbox restored from a pre-built snapshot (whisper.cpp compiled, model pre-downloaded), triggered immediately on submission, with a Postgres-based job queue (atomic claiming, stale-job recovery, retry caps) instead of running inside a plain serverless function, which can't compile whisper.cpp at all (confirmed: Vercel's default Sandbox image doesn't ship a C compiler either — installing `build-essential` is part of the one-time snapshot build, documented in `worker/README.md`) |
@@ -224,13 +224,17 @@ reproduces identically with `git stash` applied against an unmodified `main`. Li
 ESLint 9 / `eslint-config-next` version-compatibility issue; worth a dedicated fix, but out
 of scope for the Reels work this session was about.
 
-**Not unit-tested, by explicit, documented choice, same as before:** `transcribe.ts` (shells
-out to a real compiled binary and downloads a real multi-hundred-MB model — see its own
-comment), and the worker's Sandbox-orchestration code (`triggerWorker.ts`), which needs a
-real Vercel Sandbox to mean anything. What *is* verified about these: whisper.cpp compiling
-and the model downloading were confirmed for real inside an actual Vercel Sandbox this
-session (not assumed from documentation), and the resulting snapshot was confirmed to restore
-correctly with both intact — see "Known gaps" for exactly what's still unverified beyond that.
+**Not covered by the automated (vitest) suite, by explicit, documented choice:**
+`transcribe.ts`, `render.ts`, and the worker's Sandbox-orchestration code (`triggerWorker.ts`,
+`worker/run.ts`) — these need a real compiled whisper.cpp binary, a real multi-hundred-MB
+model, and a real Vercel Sandbox capable of launching headless Chrome to mean anything, none
+of which a unit test can meaningfully fake. What *is* verified about these, for real: a real
+Hebrew video was processed through the entire pipeline against a live Sandbox worker this
+session — real transcription, real silence-cutting, a real Remotion render, a real upload —
+and the output was downloaded and checked with ffprobe, with captions read back and confirmed
+correct. See "Reels" above and "Known gaps" below for exactly what that run covered, what it
+found and fixed, and the one thing it didn't exercise (the live site's own HTTP/Basic-Auth
+layer specifically, for a reason explained there).
 
 **Beyond the automated suite**, the full live workflow was manually smoke-tested against a
 real running instance (`npm start`) and a real local Postgres: created a client via the API,
@@ -359,20 +363,43 @@ narrower:
   minute or two at normal quality will exceed this. Upgrading the Supabase project's plan
   (Settings → Billing, org `anqbairtajmzumyqykcc`) raises the real ceiling; raise both of
   those numbers together afterward, or they'll just keep rejecting large files for no reason.
-- **The Sandbox snapshot expires 7 days after creation.** This session built
-  `snap_sH0NdfrcJ9v2ERvbXMg5pg0ZFhVI` (whisper.cpp compiled, the "small" Whisper model
-  pre-downloaded) and set it as `REEL_WORKER_SNAPSHOT_ID`, but a Vercel Sandbox snapshot has
-  a fixed 7-day lifetime with no way to extend it (confirmed, not assumed). Rebuild it before
+- **The Sandbox snapshot expires 7 days after creation.** The current snapshot
+  (`REEL_WORKER_SNAPSHOT_ID`) was built 2026-11-17 and expires ~2026-11-24. Rebuild it before
   then — see `worker/README.md` for the exact steps — or `triggerReelWorker()` starts failing
   with a snapshot-not-found error on every new job.
-- **No full real-video end-to-end run was completed this session.** Every pipeline stage is
-  implemented against this project's actually-installed package APIs, and the individual
-  pieces were verified for real where it mattered most (whisper.cpp genuinely compiles and
-  the model genuinely downloads inside an actual Vercel Sandbox — confirmed by doing it, not
-  by reading docs). What wasn't completed was feeding one real video all the way through
-  submission → download → transcribe → render → upload → "ready for review" against the live
-  site. Do that once, end to end, before trusting this for a real deadline — see "How to
-  operate the system" below for exactly how.
+- **A real end-to-end run has been completed and verified** — not just implemented. A real
+  Hebrew video (a Creative-Commons-licensed documentary clip) was pushed through the full
+  pipeline against a live Sandbox worker: direct-upload storage → job queue → silence
+  detection → whisper.cpp transcription → caption generation → Remotion render → signed
+  Supabase upload → `ready_for_review`. The rendered output was downloaded and verified with
+  ffprobe (valid h264 video + aac audio, correct 9:16 aspect ratio, duration matching the
+  kept-segments math exactly) and the captions were read back from the database and confirmed
+  to be clean, grammatically correct Hebrew. This surfaced and fixed three real defects along
+  the way (see below) — none of them were visible from code review or type-checking alone,
+  only from running a real job against real infrastructure. One caveat on how this was run:
+  `APP_PASSWORD` is a Vercel "sensitive"-type secret, which by design can't be read back via
+  the API even by the project owner, so this specific run went through a direct job-queue
+  insert and a direct Sandbox worker invocation rather than through the live site's HTTP API —
+  the pipeline itself is identical either way (the Next.js route is a thin, already-tested
+  wrapper: validate, insert a row, trigger the same worker), but a submission through the
+  actual `/reels` page with Basic Auth hasn't been separately exercised.
+- **Three real defects were found and fixed by this end-to-end run, not by review:**
+  1. The Sandbox snapshot was missing `libnss3`/`libnspr4` — headless Chrome (which Remotion's
+     render step needs) failed to even launch without them. Fixed by installing both during
+     the snapshot build (see `worker/README.md`).
+  2. Rendering failed trying to read the raw footage: Remotion only serves assets from its own
+     `public` folder (confirmed against Remotion's own docs), so a per-job temp file needed a
+     small local HTTP server (`serveLocalFile()` in `render.ts`, using only Node's built-in
+     `http` module) rather than a bare path or a `file://` URL (both tried first, both wrong,
+     for two different reasons — see the commit history for exactly why).
+  3. Hebrew captions were being silently corrupted: whisper.cpp's `--max-len 1` (forced by the
+     previous `tokenLevelTimestamps: true` setting) splits a Hebrew character's multi-byte
+     UTF-8 encoding across adjacent output tokens, each written as its own invalid "UTF-8"
+     JSON string — Node's lenient reader silently replaced the broken bytes with `�` instead
+     of throwing, so this was invisible until the actual caption text was inspected. Fixed in
+     `transcribe.ts` by dropping token-level timestamps (confirmed, by reading
+     `CaptionPage.tsx`, to have no effect on the rendered word-highlight, which already keys
+     off each caption's own start/end time, not the removed per-token timestamp).
 - **ivrit.ai's Hebrew-tuned model isn't in the live snapshot.** The integration is real —
   `WHISPER_MODEL=ivrit-v2-d4` is a working config switch (see `worker/README.md`), the model
   is confirmed Apache-2.0 licensed and a drop-in ggml file — but the snapshot built this

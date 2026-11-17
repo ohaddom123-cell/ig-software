@@ -66,17 +66,14 @@ async function serveLocalFile(filePath: string): Promise<{ url: string; close: (
 }
 
 /**
- * The full pipeline: raw footage in, captioned+trimmed mp4 out. This is
- * real code against verified APIs (every Remotion/whisper-cpp call here
- * was checked against this project's actually-installed package
- * versions, not recalled from memory), but it has NOT been executed
- * end-to-end in this session — that needs a real video file with real
- * speech, a downloaded Whisper model, and a render environment capable of
- * launching headless Chrome, none of which this sandbox reliably has on
- * hand. Treat this as implemented-and-type-checked, not
- * implemented-and-proven; run it once against a real clip before trusting
- * it on a live job. See README's Definition of Done for the same
- * distinction applied to the rest of the app.
+ * The full pipeline: raw footage in, captioned+trimmed mp4 out. Run
+ * end-to-end against a real Vercel Sandbox worker with a real Hebrew
+ * video (see README's "Reels" section) — not just type-checked. That run
+ * is what found and fixed serveLocalFile() existing at all (Remotion only
+ * serves assets from its own `public` folder; a bare absolute path or a
+ * file:// URL both fail for different reasons — see git history) and the
+ * Sandbox snapshot's missing libnss3/libnspr4 (headless Chrome wouldn't
+ * launch without them).
  */
 export async function renderReel(options: RenderReelOptions): Promise<RenderReelResult> {
   const { rawFootagePath, highlightColor, textColor, onProgress } = options;
