@@ -1,7 +1,8 @@
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import type { Language } from "@remotion/install-whisper-cpp";
@@ -29,6 +30,39 @@ export interface RenderReelResult {
   outputPath: string;
   keepSegments: { startMs: number; endMs: number }[];
   captions: CaptionedReelProps["captions"];
+}
+
+/**
+ * Remotion only serves assets from its project's own `public` folder —
+ * confirmed against Remotion's own docs (remotion.dev/docs/miscellaneous/
+ * absolute-paths), which explicitly name this as the problem and
+ * recommend exactly this workaround (a small local HTTP server) for a
+ * file that lives outside the project, such as a per-job temp file whose
+ * path isn't known until runtime. A bare absolute path or a file:// URL
+ * both fail differently: the Studio-side resolver (getAbsoluteSrc) turns
+ * a bare path into a URL against the bundler's own dev-server origin
+ * (404, since that path was never served there), while renderMedia()'s
+ * own asset-downloading code explicitly rejects file:// ("Can only
+ * download URLs starting with http:// or https://") — both confirmed by
+ * actually hitting them against a real render. A single-purpose local
+ * server sidesteps both.
+ */
+async function serveLocalFile(filePath: string): Promise<{ url: string; close: () => Promise<void> }> {
+  const server = http.createServer((_req, res) => {
+    fsSync.createReadStream(filePath).pipe(res);
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to start the local file server for rendering.");
+  }
+  return {
+    url: `http://127.0.0.1:${address.port}/raw-footage`,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
 }
 
 /**
@@ -80,40 +114,35 @@ export async function renderReel(options: RenderReelOptions): Promise<RenderReel
       entryPoint: path.join(process.cwd(), "remotion", "index.ts"),
     });
 
-    const inputProps: CaptionedReelProps = {
-      // Remotion's own getAbsoluteSrc() (read directly from the installed
-      // package: node_modules/remotion/dist/cjs/absolute-src.js) only
-      // recognizes http(s)://, file://, blob: and data: prefixes — any
-      // other string (including a plain OS-absolute path) gets resolved
-      // via `new URL(src, document.baseURI)`, i.e. against the bundler's
-      // own dev-server origin. Confirmed the hard way: without this
-      // file:// prefix, OffthreadVideo requested
-      // http://localhost:3000/tmp/<rawFootagePath>, which 404s, since
-      // that path was never served there. file:// makes Remotion read the
-      // raw footage directly from disk instead.
-      videoSrc: pathToFileURL(rawFootagePath).href,
-      keepSegments,
-      captions,
-      highlightColor,
-      textColor,
-    };
+    const localFileServer = await serveLocalFile(rawFootagePath);
+    try {
+      const inputProps: CaptionedReelProps = {
+        videoSrc: localFileServer.url,
+        keepSegments,
+        captions,
+        highlightColor,
+        textColor,
+      };
 
-    onProgress?.("selecting composition", 0.7);
-    const composition = await selectComposition({
-      serveUrl,
-      id: "CaptionedReel",
-      inputProps,
-    });
+      onProgress?.("selecting composition", 0.7);
+      const composition = await selectComposition({
+        serveUrl,
+        id: "CaptionedReel",
+        inputProps,
+      });
 
-    onProgress?.("rendering", 0.75);
-    await renderMedia({
-      composition,
-      serveUrl,
-      codec: "h264",
-      outputLocation: outputPath,
-      inputProps,
-      onProgress: ({ progress }) => onProgress?.("rendering", 0.75 + progress * 0.25),
-    });
+      onProgress?.("rendering", 0.75);
+      await renderMedia({
+        composition,
+        serveUrl,
+        codec: "h264",
+        outputLocation: outputPath,
+        inputProps,
+        onProgress: ({ progress }) => onProgress?.("rendering", 0.75 + progress * 0.25),
+      });
+    } finally {
+      await localFileServer.close();
+    }
 
     onProgress?.("done", 1);
     return { outputPath, keepSegments, captions };
