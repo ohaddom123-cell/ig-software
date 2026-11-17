@@ -229,12 +229,13 @@ of scope for the Reels work this session was about.
 `worker/run.ts`) — these need a real compiled whisper.cpp binary, a real multi-hundred-MB
 model, and a real Vercel Sandbox capable of launching headless Chrome to mean anything, none
 of which a unit test can meaningfully fake. What *is* verified about these, for real: a real
-Hebrew video was processed through the entire pipeline against a live Sandbox worker this
-session — real transcription, real silence-cutting, a real Remotion render, a real upload —
-and the output was downloaded and checked with ffprobe, with captions read back and confirmed
-correct. See "Reels" above and "Known gaps" below for exactly what that run covered, what it
-found and fixed, and the one thing it didn't exercise (the live site's own HTTP/Basic-Auth
-layer specifically, for a reason explained there).
+Hebrew video was processed through the entire pipeline against a live Sandbox worker — real
+transcription, real silence-cutting, a real Remotion render, a real upload — with the output
+downloaded and checked with ffprobe and captions read back and confirmed correct. Separately,
+the live site itself (the deployed preview URL, real Basic Auth, a real browser upload through
+`/reels`) was driven through the same flow end to end, watching it progress through every
+real UI state to a playable result. See "Reels" above and "Known gaps" below for exactly what
+each run covered and found.
 
 **Beyond the automated suite**, the full live workflow was manually smoke-tested against a
 real running instance (`npm start`) and a real local Postgres: created a client via the API,
@@ -367,23 +368,19 @@ narrower:
   (`REEL_WORKER_SNAPSHOT_ID`) was built 2026-11-17 and expires ~2026-11-24. Rebuild it before
   then — see `worker/README.md` for the exact steps — or `triggerReelWorker()` starts failing
   with a snapshot-not-found error on every new job.
-- **A real end-to-end run has been completed and verified** — not just implemented. A real
-  Hebrew video (a Creative-Commons-licensed documentary clip) was pushed through the full
-  pipeline against a live Sandbox worker: direct-upload storage → job queue → silence
-  detection → whisper.cpp transcription → caption generation → Remotion render → signed
-  Supabase upload → `ready_for_review`. The rendered output was downloaded and verified with
-  ffprobe (valid h264 video + aac audio, correct 9:16 aspect ratio, duration matching the
-  kept-segments math exactly) and the captions were read back from the database and confirmed
-  to be clean, grammatically correct Hebrew. This surfaced and fixed three real defects along
-  the way (see below) — none of them were visible from code review or type-checking alone,
-  only from running a real job against real infrastructure. One caveat on how this was run:
-  `APP_PASSWORD` is a Vercel "sensitive"-type secret, which by design can't be read back via
-  the API even by the project owner, so this specific run went through a direct job-queue
-  insert and a direct Sandbox worker invocation rather than through the live site's HTTP API —
-  the pipeline itself is identical either way (the Next.js route is a thin, already-tested
-  wrapper: validate, insert a row, trigger the same worker), but a submission through the
-  actual `/reels` page with Basic Auth hasn't been separately exercised.
-- **Three real defects were found and fixed by this end-to-end run, not by review:**
+- **A real end-to-end run has been completed and verified — through the actual live site,
+  not a workaround.** A real Hebrew video (a Creative-Commons-licensed documentary clip) was
+  pushed through the full pipeline against a live Sandbox worker: direct-upload storage → job
+  queue → silence detection → whisper.cpp transcription → caption generation → Remotion
+  render → signed Supabase upload → `ready_for_review`, with the rendered output downloaded
+  and verified with ffprobe and the captions read back and confirmed clean, grammatically
+  correct Hebrew. Separately, a full run was also driven through the deployed preview URL
+  itself — real Basic Auth login, a real browser file upload through `/reels`, watching the
+  actual UI progress through every stage in real time, ending with a real `<video>` element
+  rendering a playable result with Approve/Reject buttons, exactly as a user would see it.
+- **Five real defects were found and fixed across these runs, not by review** — none of them
+  were visible from code review or type-checking alone, only from running real jobs against
+  real infrastructure (including the actual live site):
   1. The Sandbox snapshot was missing `libnss3`/`libnspr4` — headless Chrome (which Remotion's
      render step needs) failed to even launch without them. Fixed by installing both during
      the snapshot build (see `worker/README.md`).
@@ -400,6 +397,17 @@ narrower:
      `transcribe.ts` by dropping token-level timestamps (confirmed, by reading
      `CaptionPage.tsx`, to have no effect on the rendered word-highlight, which already keys
      off each caption's own start/end time, not the removed per-token timestamp).
+  4. A real submission through the live site failed every single job with "Invalid whisper
+     model ." — `triggerWorker.ts` was forwarding `WHISPER_MODEL` into the Sandbox as `""`
+     whenever it was unset on the Vercel project (which it always was), and `processReel.ts`'s
+     `?? "small"` fallback only treats `null`/`undefined` as missing, not an empty string, so
+     the default silently never applied. Fixed on both sides: the Sandbox env no longer gets
+     an empty `WHISPER_MODEL` key at all when unset, and the fallback is more defensive too.
+  5. A reel reached "Ready for review" on the live site with no video preview — just
+     Approve/Reject buttons and nothing to review. `ReelsPanel.tsx` polls the list endpoint
+     (`GET /api/reels`), but only the single-item endpoint ever generated a signed output URL;
+     the list endpoint just returned raw rows, so `signedOutputUrl` was always missing there.
+     Fixed by generating one per row in the list response too.
 - **ivrit.ai's Hebrew-tuned model isn't in the live snapshot.** The integration is real —
   `WHISPER_MODEL=ivrit-v2-d4` is a working config switch (see `worker/README.md`), the model
   is confirmed Apache-2.0 licensed and a drop-in ggml file — but the snapshot built this
