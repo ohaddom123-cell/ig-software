@@ -7,6 +7,7 @@ import { reelItems } from "@/db/schema";
 import { jsonError, zodError } from "@/lib/api-utils";
 import { triggerReelWorker } from "@/lib/reels/triggerWorker";
 import { recordTriggerFailure } from "@/lib/reels/jobQueue";
+import { storage } from "@/lib/storage";
 
 // Exactly one of rawFootageUrl (external import) or rawFootageStorageKey
 // (direct browser upload to the reel-raw bucket, via POST /api/reels/upload-url)
@@ -29,7 +30,26 @@ export async function GET(request: NextRequest) {
     ? await db.select().from(reelItems).where(eq(reelItems.clientId, clientId)).orderBy(desc(reelItems.createdAt))
     : await db.select().from(reelItems).orderBy(desc(reelItems.createdAt));
 
-  return NextResponse.json(rows);
+  // Same reasoning as GET /api/reels/[id]: outputStorageKey is the durable
+  // reference, any stored renderedVideoUrl may be an expired signed URL,
+  // so a fresh one is generated per request. This list endpoint is what
+  // ReelsPanel.tsx actually polls (not the single-item route) — without
+  // this, the video preview silently never appeared for a completed reel,
+  // confirmed by actually loading the live page, not just reading the code.
+  const withSignedUrls = await Promise.all(
+    rows.map(async (row) => ({
+      ...row,
+      // Only the two statuses ReelsPanel.tsx actually renders a <video> for
+      // — no point signing a URL for a rejected/failed/in-progress row on
+      // every poll.
+      signedOutputUrl:
+        row.outputStorageKey && (row.status === "ready_for_review" || row.status === "approved")
+          ? await storage.getSignedUrl(row.outputStorageKey, "reel-output").catch(() => null)
+          : null,
+    })),
+  );
+
+  return NextResponse.json(withSignedUrls);
 }
 
 /**
