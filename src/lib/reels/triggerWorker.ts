@@ -36,7 +36,14 @@ export async function triggerReelWorker(): Promise<void> {
       // default regardless of what's configured on the Vercel project —
       // the whole point of WHISPER_MODEL being centralised/configurable
       // (see transcribe.ts) is that this forwarding has to actually happen.
-      WHISPER_MODEL: process.env.WHISPER_MODEL ?? "",
+      // Omitted entirely when unset, not forwarded as "" — confirmed the
+      // hard way: processReel.ts's `process.env.WHISPER_MODEL ?? "small"`
+      // only treats null/undefined as missing, not an empty string, so a
+      // forwarded "" silently skipped the "small" default and broke every
+      // job with "Invalid whisper model ." (also hardened on the
+      // processReel.ts side, but this avoids manufacturing the empty
+      // value in the first place).
+      ...(process.env.WHISPER_MODEL ? { WHISPER_MODEL: process.env.WHISPER_MODEL } : {}),
     },
   });
 

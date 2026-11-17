@@ -15,7 +15,13 @@ import type { HebrewTranscriptionModel } from "./transcribe";
 // project (and make sure that model is in the Sandbox snapshot — see
 // worker/README.md) for the more accurate, Hebrew-specific model.
 // Defaults to "small", a good speed/accuracy balance on Sandbox hardware.
-const WHISPER_MODEL = (process.env.WHISPER_MODEL as HebrewTranscriptionModel | undefined) ?? "small";
+// `|| "small"`, not `?? "small"`: an unset WHISPER_MODEL can legitimately
+// arrive here as "" (triggerWorker.ts forwards it into the Sandbox env
+// unconditionally, and an unset env var on the Vercel project side
+// becomes an empty string once it round-trips through there) — confirmed
+// by a real job failing with "Invalid whisper model ." instead of
+// defaulting, since `??` only treats null/undefined as missing, not "".
+const WHISPER_MODEL = (process.env.WHISPER_MODEL as HebrewTranscriptionModel | undefined) || "small";
 
 const MAX_RAW_FOOTAGE_BYTES = MAX_RAW_FOOTAGE_MB * 1024 * 1024;
 
