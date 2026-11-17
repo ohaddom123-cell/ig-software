@@ -32,6 +32,11 @@ export async function triggerReelWorker(): Promise<void> {
       DATABASE_URL: process.env.DATABASE_URL ?? "",
       SUPABASE_URL: process.env.SUPABASE_URL ?? "",
       SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+      // Without this, the worker always falls back to its own "small"
+      // default regardless of what's configured on the Vercel project —
+      // the whole point of WHISPER_MODEL being centralised/configurable
+      // (see transcribe.ts) is that this forwarding has to actually happen.
+      WHISPER_MODEL: process.env.WHISPER_MODEL ?? "",
     },
   });
 

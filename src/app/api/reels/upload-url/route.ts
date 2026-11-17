@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { jsonError, zodError } from "@/lib/api-utils";
 import { storage } from "@/lib/storage";
+import { MAX_RAW_FOOTAGE_MB } from "@/lib/reels/limits";
 
 const requestSchema = z.object({
   clientId: z.string().uuid(),
@@ -16,8 +17,9 @@ const requestSchema = z.object({
 // caps file size project-wide at 52428800 bytes, confirmed directly against
 // this project's own config (raising it needs a paid plan upgrade — a
 // billing decision, not something changed here). If the plan is upgraded
-// later, raise both this and setup.ts's bucket file_size_limit together.
-const MAX_FILE_SIZE_MB = 50;
+// later, raise this, setup.ts's bucket file_size_limit, and limits.ts
+// together.
+const MAX_FILE_SIZE_MB = MAX_RAW_FOOTAGE_MB;
 
 /**
  * Returns a short-lived signed upload URL so the browser can upload raw

@@ -255,6 +255,12 @@ export function ReelsPanel({ clients }: { clients: { id: string; name: string }[
                 </div>
               )}
 
+              {item.status !== "failed" && item.errorMessage && (
+                <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+                  {item.errorMessage}
+                </div>
+              )}
+
               {item.signedOutputUrl && (item.status === "ready_for_review" || item.status === "approved") && (
                 <video
                   src={item.signedOutputUrl}

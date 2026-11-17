@@ -3,7 +3,14 @@ import { db } from "@/db/client";
 import { reelItems } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { createTestClient } from "./helpers";
-import { claimNextReelJob, markFailed, reportProgress, MAX_RETRIES, STALE_CLAIM_MINUTES } from "@/lib/reels/jobQueue";
+import {
+  claimNextReelJob,
+  markFailed,
+  recordTriggerFailure,
+  reportProgress,
+  MAX_RETRIES,
+  STALE_CLAIM_MINUTES,
+} from "@/lib/reels/jobQueue";
 
 async function createReel(clientId: string, overrides: Partial<typeof reelItems.$inferInsert> = {}) {
   const [row] = await db
@@ -128,5 +135,34 @@ describe("reportProgress / markFailed", () => {
 
     const reclaimed = await claimNextReelJob("worker-b");
     expect(reclaimed).toBeNull();
+  });
+});
+
+describe("recordTriggerFailure", () => {
+  it("records the message but leaves the job queued (not failed) for the cron to retry", async () => {
+    const client = await createTestClient();
+    const reel = await createReel(client.id);
+
+    await recordTriggerFailure(reel.id, "sandbox create failed");
+
+    const [row] = await db.select().from(reelItems).where(eq(reelItems.id, reel.id));
+    expect(row?.status).toBe("uploaded");
+    expect(row?.errorMessage).toBe("sandbox create failed");
+
+    // still claimable — a trigger failure must not make the job unretryable
+    const claimed = await claimNextReelJob("worker-a");
+    expect(claimed?.id).toBe(reel.id);
+  });
+
+  it("does not clobber a status/message that already moved past 'uploaded'", async () => {
+    const client = await createTestClient();
+    const reel = await createReel(client.id);
+    await markFailed(reel.id, "a real processing failure");
+
+    await recordTriggerFailure(reel.id, "stale trigger-failure callback, fired late");
+
+    const [row] = await db.select().from(reelItems).where(eq(reelItems.id, reel.id));
+    expect(row?.status).toBe("failed");
+    expect(row?.errorMessage).toBe("a real processing failure");
   });
 });

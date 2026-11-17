@@ -6,6 +6,7 @@ import { db } from "@/db/client";
 import { reelItems } from "@/db/schema";
 import { jsonError, zodError } from "@/lib/api-utils";
 import { triggerReelWorker } from "@/lib/reels/triggerWorker";
+import { recordTriggerFailure } from "@/lib/reels/jobQueue";
 
 // Exactly one of rawFootageUrl (external import) or rawFootageStorageKey
 // (direct browser upload to the reel-raw bucket, via POST /api/reels/upload-url)
@@ -59,7 +60,12 @@ export async function POST(request: NextRequest) {
 
   after(() => {
     triggerReelWorker().catch((err) => {
+      const message = err instanceof Error ? err.message : "Unknown error";
       console.error(`Failed to trigger reel worker for ${row.id}:`, err);
+      recordTriggerFailure(
+        row.id,
+        `Still queued — the last attempt to start processing failed (${message}). It will retry automatically.`,
+      ).catch(() => {});
     });
   });
 

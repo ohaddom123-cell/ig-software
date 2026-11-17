@@ -6,6 +6,7 @@ import { db } from "@/db/client";
 import { reelItems } from "@/db/schema";
 import { jsonError, zodError } from "@/lib/api-utils";
 import { triggerReelWorker } from "@/lib/reels/triggerWorker";
+import { recordTriggerFailure } from "@/lib/reels/jobQueue";
 import { storage } from "@/lib/storage";
 
 const actionSchema = z.object({
@@ -79,7 +80,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   after(() => {
     triggerReelWorker().catch((err) => {
+      const message = err instanceof Error ? err.message : "Unknown error";
       console.error(`Failed to trigger reel worker for reprocessing ${id}:`, err);
+      recordTriggerFailure(
+        id,
+        `Still queued — the last attempt to start processing failed (${message}). It will retry automatically.`,
+      ).catch(() => {});
     });
   });
 

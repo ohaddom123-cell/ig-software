@@ -88,3 +88,21 @@ export async function markFailed(reelId: string, errorMessage: string): Promise<
     WHERE id = ${reelId}
   `);
 }
+
+/**
+ * Records a non-fatal error on a job that's still queued ("uploaded") —
+ * used when starting the worker itself fails (e.g. Sandbox.create()
+ * throwing), which isn't this specific job's fault and isn't permanent,
+ * so the status stays "uploaded" and the daily safety-net cron keeps
+ * retrying it. Without this, a systemic failure (e.g. an expired
+ * snapshot) would leave the user looking at a silent "Queued" badge with
+ * no indication anything is wrong, for up to a day. The status guard
+ * avoids clobbering a real failure/progress update that landed first.
+ */
+export async function recordTriggerFailure(reelId: string, message: string): Promise<void> {
+  await db.execute(sql`
+    UPDATE reel_items
+    SET error_message = ${message}, updated_at = now()
+    WHERE id = ${reelId} AND status = 'uploaded'
+  `);
+}
