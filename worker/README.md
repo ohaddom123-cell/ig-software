@@ -45,7 +45,7 @@ part of the Next.js app's own deploy.
    in as few round-trips as possible):
    ```bash
    npm install \
-     && sudo apt-get update -qq && sudo apt-get install -y -qq build-essential \
+     && sudo apt-get update -qq && sudo apt-get install -y -qq build-essential libnss3 libnspr4 \
      && npx tsx -e '
          import("@remotion/install-whisper-cpp").then(async (w) => {
            await w.installWhisperCpp({ to: "/vercel/.whisper-cpp", version: "1.5.5" });
@@ -55,10 +55,16 @@ part of the Next.js app's own deploy.
    ```
    `build-essential` is **not** in Vercel's default "universal" sandbox
    image — installing it is a real, necessary step, confirmed by it
-   failing with `spawn make ENOENT` without it.
+   failing with `spawn make ENOENT` without it. `libnss3`/`libnspr4`
+   aren't in it either — without them, headless Chrome (which Remotion's
+   render step needs) fails to even launch, with "error while loading
+   shared libraries: libnspr4.so: cannot open shared object file" — found
+   by running a real reel through a real Sandbox worker, not assumed.
 4. Verify before snapshotting: `/vercel/.whisper-cpp/main` (the compiled
    binary) and `/vercel/.whisper-cpp/ggml-small.bin` (the model) both
-   exist.
+   exist, and that headless Chrome can actually launch:
+   `ldd node_modules/.remotion/chrome-headless-shell/linux64/chrome-headless-shell-linux64/chrome-headless-shell | grep "not found"`
+   should print nothing.
 5. Snapshot the session (`create_sandboxes_sessions_by_session_id_snapshot_v3`
    or the CLI equivalent) and set the resulting `snap_...` ID as
    `REEL_WORKER_SNAPSHOT_ID` on the Vercel project (all environments).
