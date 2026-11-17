@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "storage:setup": "tsx src/lib/storage/setup.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
@@ -20,7 +21,8 @@
     "@remotion/captions": "^4.0.543",
     "@remotion/install-whisper-cpp": "^4.0.543",
     "@remotion/renderer": "^4.0.543",
-    "@vercel/blob": "^2.9.0",
+    "@supabase/supabase-js": "^2.119.0",
+    "@vercel/sandbox": "^4.0.0",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
     "drizzle-orm": "^0.44.6",

@@ -3,7 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
-import type { Language, WhisperModel } from "@remotion/install-whisper-cpp";
+import type { Language } from "@remotion/install-whisper-cpp";
+import type { HebrewTranscriptionModel } from "./transcribe";
 
 import { computeKeepSegments } from "./segments";
 import { remapCaptionsToTrimmedTimeline } from "./remapCaptions";
@@ -19,7 +20,7 @@ export interface RenderReelOptions {
   highlightColor: string;
   textColor: string;
   language?: Language;
-  whisperModel?: WhisperModel;
+  whisperModel?: HebrewTranscriptionModel;
   onProgress?: (step: string, fraction: number) => void;
 }
 

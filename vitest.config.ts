@@ -14,6 +14,11 @@ export default defineConfig({
     // with — sequential execution trades a bit of speed for tests that
     // aren't flaky by construction.
     fileParallelism: false,
+    // .whisper-cpp is a gitignored local build artifact (see
+    // src/lib/reels — any manual test that compiles whisper.cpp locally
+    // drops its own vendored test files there, which vitest's default
+    // glob would otherwise pick up as if they were ours).
+    exclude: ["**/node_modules/**", "**/.whisper-cpp/**"],
   },
   resolve: {
     alias: {

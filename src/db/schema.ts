@@ -213,7 +213,12 @@ export const timeTrackingEntries = pgTable(
 
 export const reelStatusEnum = pgEnum("reel_status", [
   "uploaded",
-  "processing",
+  "processing", // legacy catch-all; new code sets one of the specific stages below
+  "downloading",
+  "transcribing",
+  "editing",
+  "rendering",
+  "uploading",
   "ready_for_review",
   "approved",
   "rejected",
@@ -235,9 +240,25 @@ export const reelItems = pgTable(
       .notNull()
       .references(() => clients.id, { onDelete: "cascade" }),
 
-    rawFootageUrl: text("raw_footage_url").notNull(),
+    // Exactly one of these two identifies the raw footage. rawFootageUrl is
+    // an external URL (Drive/Dropbox import). rawFootageStorageKey is a key
+    // in the reel-raw Supabase Storage bucket (direct browser upload). Kept
+    // as two nullable-ish columns rather than a discriminated union column
+    // because this is Drizzle/Postgres, not a place to encode a sum type —
+    // processReel.ts's own logic is the discriminator (storage key wins if
+    // both are somehow set, since direct upload is the newer, preferred path).
+    rawFootageUrl: text("raw_footage_url").notNull().default(""),
+    rawFootageStorageKey: text("raw_footage_storage_key"),
     status: reelStatusEnum("status").notNull().default("uploaded"),
     errorMessage: text("error_message").notNull().default(""),
+
+    // --- job orchestration (atomic claiming by the Sandbox worker) ---
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    claimedBy: text("claimed_by").notNull().default(""),
+    retryCount: integer("retry_count").notNull().default(0),
+    // Free-text, human-readable current step (e.g. "transcribing"), shown
+    // in the UI as real progress — never a fabricated percentage.
+    progressStage: text("progress_stage").notNull().default(""),
 
     // Non-silent segments computed from the raw footage, in source-timeline
     // milliseconds: [{ startMs, endMs }, ...]. Null until processing runs.
@@ -256,7 +277,15 @@ export const reelItems = pgTable(
       }[]
     >(),
 
+    // Deprecated: a point-in-time signed URL, not regenerated once expired.
+    // New code should not read this — call the storage provider's
+    // getSignedUrl() against outputStorageKey instead, which is what the
+    // GET /api/reels route now does. Left in place rather than dropped;
+    // see Phase 1 note in README.
     renderedVideoUrl: text("rendered_video_url"),
+    // Durable key in the reel-output Supabase Storage bucket. The only
+    // thing that should be trusted for "does a finished video exist."
+    outputStorageKey: text("output_storage_key"),
 
     // "approved"/"rejected" live on `status` above, alongside the pipeline
     // states — one state field, not two overlapping ones. approvedAt is
