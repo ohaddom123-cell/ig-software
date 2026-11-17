@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import type { Language } from "@remotion/install-whisper-cpp";
@@ -80,7 +81,17 @@ export async function renderReel(options: RenderReelOptions): Promise<RenderReel
     });
 
     const inputProps: CaptionedReelProps = {
-      videoSrc: rawFootagePath,
+      // Remotion's own getAbsoluteSrc() (read directly from the installed
+      // package: node_modules/remotion/dist/cjs/absolute-src.js) only
+      // recognizes http(s)://, file://, blob: and data: prefixes — any
+      // other string (including a plain OS-absolute path) gets resolved
+      // via `new URL(src, document.baseURI)`, i.e. against the bundler's
+      // own dev-server origin. Confirmed the hard way: without this
+      // file:// prefix, OffthreadVideo requested
+      // http://localhost:3000/tmp/<rawFootagePath>, which 404s, since
+      // that path was never served there. file:// makes Remotion read the
+      // raw footage directly from disk instead.
+      videoSrc: pathToFileURL(rawFootagePath).href,
       keepSegments,
       captions,
       highlightColor,
