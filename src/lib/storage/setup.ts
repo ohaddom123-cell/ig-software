@@ -1,8 +1,13 @@
 import { createClient } from "@supabase/supabase-js";
 
+// 50MB matches this Supabase project's actual plan-wide ceiling (confirmed
+// directly: a 500MB bucket limit was rejected with "upgrade the project to
+// a paid plan to unlock higher file size limits"). Raise this only after
+// actually upgrading the plan — setting a higher number here without that
+// does nothing but fail bucket creation.
 const BUCKETS: { name: string; fileSizeLimitMb: number }[] = [
-  { name: "reel-raw", fileSizeLimitMb: 500 },
-  { name: "reel-output", fileSizeLimitMb: 500 },
+  { name: "reel-raw", fileSizeLimitMb: 50 },
+  { name: "reel-output", fileSizeLimitMb: 50 },
 ];
 
 /**

@@ -12,7 +12,12 @@ const requestSchema = z.object({
 // Matches Supabase's own per-file ceiling for the reel-raw bucket (see
 // src/lib/storage/setup.ts) — enforced again here so the browser gets a
 // clear error before even starting an upload that would be rejected anyway.
-const MAX_FILE_SIZE_MB = 500;
+// 50MB is this project's actual current ceiling: Supabase's free-tier plan
+// caps file size project-wide at 52428800 bytes, confirmed directly against
+// this project's own config (raising it needs a paid plan upgrade — a
+// billing decision, not something changed here). If the plan is upgraded
+// later, raise both this and setup.ts's bucket file_size_limit together.
+const MAX_FILE_SIZE_MB = 50;
 
 /**
  * Returns a short-lived signed upload URL so the browser can upload raw

@@ -26,7 +26,7 @@ not what was attempted.
 | Email notifications (Resend) | **Implemented, not externally configured** — no `RESEND_API_KEY` exists for this to send through yet; dry-run provider is fully tested instead |
 | Deployed to Vercel | **Done** — live at the production URL below, auto-deploys on every push to `main` |
 | Reels: silence-cut + Hebrew captions (Remotion) | **Implemented & type-checked against real installed package APIs.** whisper.cpp compiling and the model downloading were verified for real inside an actual Vercel Sandbox (see "Reels" below) — the one link not yet proven end-to-end in this session is a full real-video run through the live site itself; see "Known gaps" |
-| Reels: storage (Supabase Storage, private buckets + signed URLs) | **Implemented**, replacing an earlier Vercel Blob attempt that was permanently blocked by a 403 (account/plan permission, confirmed not transient). Needs `SUPABASE_SERVICE_ROLE_KEY` (and the anon-key pair for direct browser uploads) set — see "Environment variables" |
+| Reels: storage (Supabase Storage, private buckets + signed URLs) | **Implemented & provisioned.** Replaces an earlier Vercel Blob attempt that was permanently blocked by a 403 (account/plan permission, confirmed not transient). Uses the same Supabase project `DATABASE_URL` already pointed at; the `reel-raw`/`reel-output` buckets exist and the full signed-upload → upload → signed-download round trip was verified for real against them this session. One real constraint found doing that: the project's free-tier plan caps uploads at 50MB/file — see "Known gaps" |
 | Reels: direct video upload (not just a URL import) | **Implemented** — browser uploads straight to Supabase Storage via a signed URL; URL import kept as a fallback, now with SSRF protection |
 | Reels: processing infrastructure | **Implemented & verified** — runs in a Vercel Sandbox restored from a pre-built snapshot (whisper.cpp compiled, model pre-downloaded), triggered immediately on submission, with a Postgres-based job queue (atomic claiming, stale-job recovery, retry caps) instead of running inside a plain serverless function, which can't compile whisper.cpp at all (confirmed: Vercel's default Sandbox image doesn't ship a C compiler either — installing `build-essential` is part of the one-time snapshot build, documented in `worker/README.md`) |
 | Reels: ivrit.ai Hebrew-tuned transcription | **Investigated and implemented as a config option** (`WHISPER_MODEL=ivrit-v2-d4`) — confirmed Apache-2.0 licensed and a direct ggml-format drop-in. Not the default, and the current Sandbox snapshot doesn't have that model file baked in yet (see `worker/README.md`) |
@@ -275,27 +275,33 @@ GitHub repo (`ohaddom123-cell/ig-software`) so every push to `main` auto-deploys
 redeploy step needed going forward.
 
 Currently set in Vercel: `APP_USERNAME`, `APP_PASSWORD`, `CRON_SECRET` (all generated,
-not reused from anywhere), `REMINDERS_LIVE=false`, `NOTIFICATION_PROVIDER=dryrun`.
-Vercel's SSO/Auth protection was disabled on the project so the app's own Basic Auth is
-what actually gates it — without that, Vercel's own login wall would sit in front of it too.
+not reused from anywhere), `REMINDERS_LIVE=false`, `NOTIFICATION_PROVIDER=dryrun`,
+`REEL_WORKER_SNAPSHOT_ID`, and — as of this session — `SUPABASE_URL` /
+`SUPABASE_SERVICE_ROLE_KEY` / `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
+all pointing at the same Supabase project (`cfyrsnkiobqxytliqeoy`) that `DATABASE_URL`
+already uses — Storage is a feature of that one project, not a separate thing to stand up.
+The `reel-raw`/`reel-output` private buckets were created directly against that project and
+verified with a real signed-upload → real-upload → real-signed-download round trip (not
+just "the API call didn't error") — see "Known gaps" for the one real constraint this
+surfaced. Vercel's SSO/Auth protection was disabled on the project so the app's own Basic
+Auth is what actually gates it — without that, Vercel's own login wall would sit in front of
+it too.
 
 **Still missing, and only you can supply these — they're your own account credentials, not
 something that can be generated:**
 - `DATABASE_URL` — point this at a real Postgres (Supabase works directly). Until it's set,
   every page fails closed with a clear "not configured" message rather than crashing.
 - `ANTHROPIC_API_KEY` — needed for the content generator to actually run.
-- `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` — Supabase dashboard → Project Settings →
-  API → Project URL / "service_role" secret. Needed for reels to store raw footage and
-  output video at all. After setting these, run `npm run storage:setup` once to create the
-  `reel-raw`/`reel-output` buckets.
-- `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` — same dashboard page, the
-  "anon" public key. These are intentionally public; the browser uses them only to complete
-  a direct upload to a URL the server already signed.
+
+**Already set, as of this session:**
+- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`,
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY` — all four point at the existing Supabase project, and the
+  `reel-raw`/`reel-output` buckets already exist on it.
 - `REEL_WORKER_SNAPSHOT_ID` — the Vercel Sandbox snapshot with whisper.cpp and the Whisper
-  model pre-built. This session created `snap_sH0NdfrcJ9v2ERvbXMg5pg0ZFhVI` and already set
-  it on the Vercel project (all environments) — but it **expires 7 days after creation**
-  (2026-11-24). Rebuild it by then following `worker/README.md`, or reel submission starts
-  failing with a snapshot-not-found error.
+  model pre-built. This session created `snap_sH0NdfrcJ9v2ERvbXMg5pg0ZFhVI` and set it on the
+  Vercel project (all environments) — but it **expires 7 days after creation** (2026-11-24).
+  Rebuild it by then following `worker/README.md`, or reel submission starts failing with a
+  snapshot-not-found error.
 
 `vercel.json` defines four daily cron checks (07:00/11:00/15:00/19:00 UTC — Vercel Hobby
 only allows up to once/day per cron *entry*, so this uses four separate entries instead of
@@ -343,12 +349,16 @@ Blob, no real job queue) are fixed — see "Reels" above for what's actually in 
 (Supabase Storage, a Postgres-backed job queue, a Vercel Sandbox worker). What's left is
 narrower:
 
-- **Supabase Storage isn't provisioned yet.** `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` /
-  `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` are still unset (these are
-  account credentials only the project owner can supply — see "Environment variables" and
-  "Deploying"). Until they're set and `npm run storage:setup` has been run once to create the
-  `reel-raw` and `reel-output` buckets, both the upload-URL endpoint and the worker's
-  storage reads/writes fail immediately with a clear error — nothing silently hangs.
+- **Raw footage is capped at 50MB per file — a real plan limit, not a code choice.**
+  Supabase's free-tier plan caps file size project-wide at 52,428,800 bytes; attempting to
+  raise a bucket's limit above that was rejected directly by Supabase's API with "upgrade the
+  project to a paid plan to unlock higher file size limits." `MAX_FILE_SIZE_MB` in
+  `src/app/api/reels/upload-url/route.ts` and both bucket limits in `src/lib/storage/setup.ts`
+  are set to 50 to match — the UI rejects an oversized file upfront with a clear message
+  instead of letting the upload fail partway through. A typical phone video longer than a
+  minute or two at normal quality will exceed this. Upgrading the Supabase project's plan
+  (Settings → Billing, org `anqbairtajmzumyqykcc`) raises the real ceiling; raise both of
+  those numbers together afterward, or they'll just keep rejecting large files for no reason.
 - **The Sandbox snapshot expires 7 days after creation.** This session built
   `snap_sH0NdfrcJ9v2ERvbXMg5pg0ZFhVI` (whisper.cpp compiled, the "small" Whisper model
   pre-downloaded) and set it as `REEL_WORKER_SNAPSHOT_ID`, but a Vercel Sandbox snapshot has
