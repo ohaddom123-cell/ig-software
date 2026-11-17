@@ -6,7 +6,6 @@ import {
   downloadWhisperModel,
   installWhisperCpp,
   transcribe as whisperTranscribe,
-  toCaptions,
   type WhisperModel,
   type Language,
 } from "@remotion/install-whisper-cpp";
@@ -94,10 +93,46 @@ export async function transcribeToCaptions(
     whisperPath: whisperHome,
     whisperCppVersion: WHISPER_CPP_VERSION,
     inputPath: wavPath,
-    tokenLevelTimestamps: true,
+    // tokenLevelTimestamps: true (the previous setting) forces whisper.cpp's
+    // --max-len to 1 (one BPE token per output item — confirmed by reading
+    // @remotion/install-whisper-cpp's own transcribe.js, where tokensPerItem
+    // is hard-coded to 1 whenever tokenLevelTimestamps is true, with no way
+    // to override it). For a multi-byte-UTF8 script like Hebrew, that
+    // regularly splits one character's UTF-8 bytes across two adjacent
+    // tokens, each written to whisper.cpp's own JSON output as its own
+    // (now-invalid) "UTF-8" string — confirmed the hard way: Python's strict
+    // UTF-8 decoder outright rejects the raw JSON file at the split byte;
+    // Node's lenient reader (which @remotion/install-whisper-cpp's readJson
+    // uses) instead silently replaces it with U+FFFD, which is why this
+    // didn't throw here, just quietly corrupted Hebrew captions character by
+    // character. tokensPerItem: 0 (only legal when tokenLevelTimestamps is
+    // false — enforced by this function's own TypeScript types) omits
+    // --max-len entirely, letting whisper.cpp fall back to its own natural
+    // segment boundaries, which this was verified to transcribe correctly.
+    // The cost: per-token DTW timestamps are no longer computed — but
+    // CaptionPage.tsx's word-highlight already keys off each caption's own
+    // startMs/endMs (whisper.cpp's segment offsets), not the DTW-derived
+    // timestampMs field, so this has no visible effect on rendered output.
+    tokenLevelTimestamps: false,
+    tokensPerItem: 0,
     language,
   });
 
-  const { captions } = toCaptions({ whisperCppOutput });
-  return captions;
+  // Not @remotion/install-whisper-cpp's own toCaptions() — that function
+  // reads item.tokens[0], which only exists on the DTW-enabled shape (its
+  // own TranscriptionItemWithTimestamp type), and the library's types
+  // correctly refuse to let it run on this (safer) non-DTW output. The
+  // plain shape here (confirmed against transcribe.d.ts) is just
+  // { text, offsets: { from, to } } per item — this is the entire mapping
+  // toCaptions() would otherwise do, minus the per-token fields that no
+  // longer exist.
+  return whisperCppOutput.transcription
+    .filter((item) => item.text !== "")
+    .map((item, index): Caption => ({
+      text: index === 0 ? item.text.trimStart() : item.text,
+      startMs: item.offsets.from,
+      endMs: item.offsets.to,
+      timestampMs: null,
+      confidence: null,
+    }));
 }
