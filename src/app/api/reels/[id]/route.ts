@@ -5,7 +5,9 @@ import { z } from "zod";
 import { db } from "@/db/client";
 import { reelItems } from "@/db/schema";
 import { jsonError, zodError } from "@/lib/api-utils";
-import { processReelItem } from "@/lib/reels/processReel";
+import { triggerReelWorker } from "@/lib/reels/triggerWorker";
+import { recordTriggerFailure } from "@/lib/reels/jobQueue";
+import { storage } from "@/lib/storage";
 
 const actionSchema = z.object({
   action: z.enum(["approve", "reject", "reprocess"]),
@@ -15,7 +17,16 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const { id } = await params;
   const [row] = await db.select().from(reelItems).where(eq(reelItems.id, id));
   if (!row) return jsonError("Reel item not found", 404);
-  return NextResponse.json(row);
+
+  // outputStorageKey is the durable reference; any stored renderedVideoUrl
+  // may be an expired signed URL, so a fresh one is generated per request
+  // rather than trusted from the DB. A failure here (e.g. storage not
+  // configured) surfaces as a null URL, not a broken page.
+  let signedOutputUrl: string | null = null;
+  if (row.outputStorageKey) {
+    signedOutputUrl = await storage.getSignedUrl(row.outputStorageKey, "reel-output").catch(() => null);
+  }
+  return NextResponse.json({ ...row, signedOutputUrl });
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -56,13 +67,25 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
   const [row] = await db
     .update(reelItems)
-    .set({ status: "uploaded", errorMessage: "", updatedAt: new Date() })
+    .set({
+      status: "uploaded",
+      errorMessage: "",
+      progressStage: "",
+      claimedAt: null,
+      claimedBy: "",
+      updatedAt: new Date(),
+    })
     .where(eq(reelItems.id, id))
     .returning();
 
   after(() => {
-    processReelItem(id).catch((err) => {
-      console.error(`Reel reprocessing failed for ${id}:`, err);
+    triggerReelWorker().catch((err) => {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      console.error(`Failed to trigger reel worker for reprocessing ${id}:`, err);
+      recordTriggerFailure(
+        id,
+        `Still queued — the last attempt to start processing failed (${message}). It will retry automatically.`,
+      ).catch(() => {});
     });
   });
 

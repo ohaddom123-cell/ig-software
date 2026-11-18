@@ -1,20 +1,39 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { uploadFileToSignedUrl } from "@/lib/storage/browserClient";
 
 interface ReelItem {
   id: string;
   clientId: string;
   rawFootageUrl: string;
-  status: "uploaded" | "processing" | "ready_for_review" | "approved" | "rejected" | "failed";
+  rawFootageStorageKey: string | null;
+  status:
+    | "uploaded"
+    | "processing"
+    | "downloading"
+    | "transcribing"
+    | "editing"
+    | "rendering"
+    | "uploading"
+    | "ready_for_review"
+    | "approved"
+    | "rejected"
+    | "failed";
+  progressStage: string;
   errorMessage: string;
-  renderedVideoUrl: string | null;
+  signedOutputUrl: string | null;
   createdAt: string;
 }
 
 const STATUS_STYLES: Record<string, string> = {
   uploaded: "bg-slate-200 text-slate-600",
   processing: "bg-amber-100 text-amber-800",
+  downloading: "bg-amber-100 text-amber-800",
+  transcribing: "bg-amber-100 text-amber-800",
+  editing: "bg-amber-100 text-amber-800",
+  rendering: "bg-amber-100 text-amber-800",
+  uploading: "bg-amber-100 text-amber-800",
   ready_for_review: "bg-blue-100 text-blue-700",
   approved: "bg-emerald-100 text-emerald-700",
   rejected: "bg-red-100 text-red-700",
@@ -24,16 +43,34 @@ const STATUS_STYLES: Record<string, string> = {
 const STATUS_LABELS: Record<string, string> = {
   uploaded: "Queued",
   processing: "Processing…",
+  downloading: "Downloading footage…",
+  transcribing: "Transcribing (Hebrew)…",
+  editing: "Cutting silences…",
+  rendering: "Rendering captions…",
+  uploading: "Uploading result…",
   ready_for_review: "Ready for review",
   approved: "Approved",
   rejected: "Rejected",
   failed: "Failed",
 };
 
+const IN_FLIGHT_STATUSES = new Set([
+  "uploaded",
+  "processing",
+  "downloading",
+  "transcribing",
+  "editing",
+  "rendering",
+  "uploading",
+]);
+
 export function ReelsPanel({ clients }: { clients: { id: string; name: string }[] }) {
   const [clientId, setClientId] = useState(clients[0]?.id ?? "");
+  const [mode, setMode] = useState<"upload" | "url">("upload");
   const [rawFootageUrl, setRawFootageUrl] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<ReelItem[]>([]);
 
@@ -48,7 +85,7 @@ export function ReelsPanel({ clients }: { clients: { id: string; name: string }[
 
   // Light polling only while something is actually in flight — no point
   // hammering the API once everything has settled into a final state.
-  const hasInFlight = items.some((i) => i.status === "uploaded" || i.status === "processing");
+  const hasInFlight = items.some((i) => IN_FLIGHT_STATUSES.has(i.status));
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
     if (hasInFlight) {
@@ -63,11 +100,42 @@ export function ReelsPanel({ clients }: { clients: { id: string; name: string }[
     e.preventDefault();
     setSubmitting(true);
     setError(null);
+    setUploadProgress(null);
     try {
+      let body: { clientId: string; rawFootageUrl?: string; rawFootageStorageKey?: string };
+
+      if (mode === "upload") {
+        if (!file) {
+          setError("Choose a video file first.");
+          return;
+        }
+        setUploadProgress("Requesting upload URL…");
+        const urlRes = await fetch("/api/reels/upload-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientId, fileName: file.name }),
+        });
+        const urlData = await urlRes.json();
+        if (!urlRes.ok) {
+          setError(urlData.error ?? "Failed to get an upload URL.");
+          return;
+        }
+        if (file.size > urlData.maxFileSizeMb * 1024 * 1024) {
+          setError(`File is too large — max ${urlData.maxFileSizeMb}MB.`);
+          return;
+        }
+        setUploadProgress("Uploading video…");
+        await uploadFileToSignedUrl("reel-raw", urlData.key, urlData.token, file);
+        body = { clientId, rawFootageStorageKey: urlData.key };
+      } else {
+        body = { clientId, rawFootageUrl };
+      }
+
+      setUploadProgress("Queuing for processing…");
       const res = await fetch("/api/reels", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId, rawFootageUrl }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -75,11 +143,13 @@ export function ReelsPanel({ clients }: { clients: { id: string; name: string }[
         return;
       }
       setRawFootageUrl("");
+      setFile(null);
       await load();
-    } catch {
-      setError("Network error.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Network error.");
     } finally {
       setSubmitting(false);
+      setUploadProgress(null);
     }
   }
 
@@ -109,23 +179,58 @@ export function ReelsPanel({ clients }: { clients: { id: string; name: string }[
             ))}
           </select>
         </div>
-        <div className="min-w-[320px] flex-1">
-          <label className="block text-xs font-medium text-slate-600">Raw footage URL</label>
-          <input
-            required
-            type="url"
-            value={rawFootageUrl}
-            onChange={(e) => setRawFootageUrl(e.target.value)}
-            placeholder="https://drive.google.com/... or any public video link"
-            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-          />
+
+        <div>
+          <label className="block text-xs font-medium text-slate-600">Source</label>
+          <div className="mt-1 flex overflow-hidden rounded-md border border-slate-300 text-sm">
+            <button
+              type="button"
+              onClick={() => setMode("upload")}
+              className={`px-3 py-1.5 ${mode === "upload" ? "bg-teal-700 text-white" : "bg-white text-slate-600"}`}
+            >
+              Upload file
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("url")}
+              className={`px-3 py-1.5 ${mode === "url" ? "bg-teal-700 text-white" : "bg-white text-slate-600"}`}
+            >
+              Paste link
+            </button>
+          </div>
         </div>
+
+        {mode === "upload" ? (
+          <div className="min-w-[320px] flex-1">
+            <label className="block text-xs font-medium text-slate-600">Video file</label>
+            <input
+              required
+              type="file"
+              accept="video/*"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="mt-1 w-full text-sm"
+            />
+          </div>
+        ) : (
+          <div className="min-w-[320px] flex-1">
+            <label className="block text-xs font-medium text-slate-600">Raw footage URL</label>
+            <input
+              required
+              type="url"
+              value={rawFootageUrl}
+              onChange={(e) => setRawFootageUrl(e.target.value)}
+              placeholder="https://drive.google.com/... or any public video link"
+              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+            />
+          </div>
+        )}
+
         <button
           type="submit"
           disabled={submitting || !clientId}
           className="rounded-md bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-50"
         >
-          {submitting ? "Queuing…" : "Process reel"}
+          {submitting ? (uploadProgress ?? "Working…") : "Process reel"}
         </button>
         {error && <p className="w-full text-sm text-red-600">{error}</p>}
       </form>
@@ -140,7 +245,7 @@ export function ReelsPanel({ clients }: { clients: { id: string; name: string }[
                   {client?.name ?? "Unknown client"} · {new Date(item.createdAt).toLocaleString()}
                 </div>
                 <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLES[item.status]}`}>
-                  {STATUS_LABELS[item.status]}
+                  {STATUS_LABELS[item.status] ?? item.status}
                 </span>
               </div>
 
@@ -150,9 +255,15 @@ export function ReelsPanel({ clients }: { clients: { id: string; name: string }[
                 </div>
               )}
 
-              {item.renderedVideoUrl && (item.status === "ready_for_review" || item.status === "approved") && (
+              {item.status !== "failed" && item.errorMessage && (
+                <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+                  {item.errorMessage}
+                </div>
+              )}
+
+              {item.signedOutputUrl && (item.status === "ready_for_review" || item.status === "approved") && (
                 <video
-                  src={item.renderedVideoUrl}
+                  src={item.signedOutputUrl}
                   controls
                   className="mt-3 max-h-[480px] rounded-md border border-slate-200"
                 />
