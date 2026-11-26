@@ -28,6 +28,17 @@ export async function triggerReelWorker(): Promise<void> {
   const sandbox = await Sandbox.create({
     source: { type: "snapshot", snapshotId },
     timeout: SANDBOX_TIMEOUT_MS,
+    // `persistent` defaults to true, which auto-snapshots the sandbox's
+    // filesystem on every shutdown — meaning every single job run was
+    // silently leaving behind a ~2GB throwaway snapshot forever. Those
+    // accumulated until the account's Snapshot Storage quota was exceeded,
+    // which caused Vercel to evict the *real* worker snapshot
+    // (REEL_WORKER_SNAPSHOT_ID itself) to reclaim space — breaking every
+    // job with a 402 quota error that looked unrelated to this. A worker
+    // run never needs its own state preserved after it exits (job results
+    // live in Postgres/Supabase Storage, not the sandbox filesystem), so
+    // there's nothing to snapshot here.
+    persistent: false,
     env: {
       DATABASE_URL: process.env.DATABASE_URL ?? "",
       SUPABASE_URL: process.env.SUPABASE_URL ?? "",
