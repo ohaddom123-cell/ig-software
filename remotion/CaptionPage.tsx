@@ -26,7 +26,15 @@ export const CaptionPage: React.FC<{
           fontSize: 72,
           fontWeight: 800,
           fontFamily: "Heebo, Arial, sans-serif",
-          whiteSpace: "pre",
+          // "pre" (preserve whitespace, never wrap) was fine when every
+          // page was one word (tokenLevelTimestamps:true, ~900ms apart),
+          // but now that whisper.cpp emits whole sentences and each page
+          // is a single long token (see transcribe.ts/CaptionedReel.tsx),
+          // "pre" renders it as one unbroken line that overflows far
+          // outside maxWidth and off the edges of the frame — invisible,
+          // not just unwrapped. "pre-wrap" keeps the same whitespace
+          // handling but actually wraps at the maxWidth constraint below.
+          whiteSpace: "pre-wrap",
           textAlign: "center",
           maxWidth: "85%",
           textShadow: "0 2px 12px rgba(0,0,0,0.6)",

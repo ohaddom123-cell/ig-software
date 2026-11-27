@@ -71,12 +71,23 @@ export const CaptionedReel: React.FC<CaptionedReelProps> = ({
     <AbsoluteFill style={{ backgroundColor: "black" }}>
       {videoSequences}
       {pages.map((page, index) => {
-        const nextPage = pages[index + 1] ?? null;
+        // page.durationMs (from createTikTokStyleCaptions) is this page's
+        // real on-screen span — up to wherever the next page starts, or to
+        // its own last token's end if it's the last page. Previously this
+        // was capped to a flat SWITCH_CAPTIONS_EVERY_MS (900ms) regardless
+        // of how long the page actually was — harmless back when
+        // tokenLevelTimestamps:true made every page ~one word (~900ms
+        // apart anyway), but once that was turned off to fix Hebrew UTF-8
+        // corruption (see transcribe.ts), whisper.cpp's captions became
+        // whole multi-second sentences, so every page was cut off after
+        // 900ms and then showed nothing until the next page's own capped
+        // 900ms window — captions visible for a sliver of each sentence,
+        // blank for the rest. Confirmed directly: real completed jobs'
+        // stored `captions` column has correct, well-formed Hebrew text
+        // with multi-second spans, so the bug was here, not in
+        // transcription.
         const startFrame = Math.round((page.startMs / 1000) * fps);
-        const endFrame = Math.min(
-          nextPage ? Math.round((nextPage.startMs / 1000) * fps) : Infinity,
-          startFrame + Math.round((SWITCH_CAPTIONS_EVERY_MS / 1000) * fps),
-        );
+        const endFrame = Math.round(((page.startMs + page.durationMs) / 1000) * fps);
         const durationInFrames = endFrame - startFrame;
         if (durationInFrames <= 0) return null;
 
