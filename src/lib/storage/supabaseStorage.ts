@@ -2,7 +2,19 @@ import fs from "node:fs";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { StorageBucket, StorageProvider } from "./types";
 
-const DEFAULT_SIGNED_URL_TTL_SECONDS = 60 * 60; // 1 hour
+// A short TTL here directly broke the reel review workflow: ReelsPanel.tsx
+// only re-polls /api/reels (and so only re-signs the output URL) while a
+// job is still in flight — once a reel reaches "ready_for_review" with
+// nothing else processing, polling stops and the <video> keeps the one
+// signed URL it was given. Playback kept working past the old 1-hour
+// expiry (the browser was already streaming from an established
+// connection), but a fresh request — like Chrome's own "Download video"
+// — hit the now-expired URL and got Supabase's JSON error body back
+// instead of video bytes, which Chrome then saved as a nonsense
+// "<uuid>.json" file. A reviewer plausibly leaves a reel's tab open for
+// longer than an hour before deciding to download it, so 24 hours is a
+// more realistic bound for a same-day review turnaround.
+const DEFAULT_SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24 hours
 
 let real: SupabaseClient | null = null;
 
