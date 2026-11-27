@@ -94,8 +94,10 @@ export async function processReelItem(reelId: string): Promise<void> {
 
     const result = await renderReel({
       rawFootagePath,
-      highlightColor: "#34d399",
-      textColor: "#f8fafc",
+      // Classic TikTok-style captions: plain white text, with whichever
+      // word is currently being spoken highlighted in yellow.
+      highlightColor: "#facc15",
+      textColor: "#ffffff",
       language: "he",
       whisperModel: WHISPER_MODEL,
       onProgress: async (step) => {
