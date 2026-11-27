@@ -45,7 +45,7 @@ part of the Next.js app's own deploy.
    in as few round-trips as possible):
    ```bash
    npm install \
-     && sudo apt-get update -qq && sudo apt-get install -y -qq build-essential libnss3 libnspr4 \
+     && sudo apt-get update -qq && sudo apt-get install -y -qq build-essential libnss3 libnspr4 fontconfig fonts-culmus fonts-dejavu-core \
      && npx tsx -e '
          import("@remotion/install-whisper-cpp").then(async (w) => {
            await w.installWhisperCpp({ to: "/vercel/.whisper-cpp", version: "1.5.5" });
@@ -60,11 +60,27 @@ part of the Next.js app's own deploy.
    render step needs) fails to even launch, with "error while loading
    shared libraries: libnspr4.so: cannot open shared object file" — found
    by running a real reel through a real Sandbox worker, not assumed.
+
+   **The base image also has no fonts at all** — no `fontconfig`, no
+   `/usr/share/fonts`, no `/etc/fonts` (confirmed directly: `fc-list`
+   reports "command not found", and both font directories don't exist).
+   Headless Chrome then renders literally zero visible pixels for ANY
+   DOM text, regardless of how correct the surrounding CSS/React is —
+   this is why captions appeared to render successfully (the job
+   completed, the video played) but no caption text was ever visible, on
+   every job processed from a snapshot missing these packages.
+   `fonts-culmus` is Debian/Ubuntu's standard Hebrew font package; add
+   `fonts-dejavu-core` too for Latin-text fallback. Verify after
+   installing with `fc-cache -f && fc-list | wc -l` — it should report a
+   non-zero number of fonts (56 with just these two packages).
 4. Verify before snapshotting: `/vercel/.whisper-cpp/main` (the compiled
    binary) and `/vercel/.whisper-cpp/ggml-small.bin` (the model) both
-   exist, and that headless Chrome can actually launch:
+   exist, that headless Chrome can actually launch:
    `ldd node_modules/.remotion/chrome-headless-shell/linux64/chrome-headless-shell-linux64/chrome-headless-shell | grep "not found"`
-   should print nothing.
+   should print nothing, and that `fc-list` (see above) lists fonts —
+   checking that Chrome *launches* is not enough to catch the missing-fonts
+   issue, since it launches fine either way and only silently renders no
+   text.
 5. Snapshot the session (`create_sandboxes_sessions_by_session_id_snapshot_v3`
    or the CLI equivalent) and set the resulting `snap_...` ID as
    `REEL_WORKER_SNAPSHOT_ID` on the Vercel project (all environments).
