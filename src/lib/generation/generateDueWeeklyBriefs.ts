@@ -34,28 +34,31 @@ export async function generateDueWeeklyBriefs(): Promise<AutoBriefResult[]> {
   const weekStart = nextWeekStart();
   const activeClients = await db.select().from(clients).where(eq(clients.active, true));
 
-  const results: AutoBriefResult[] = [];
-  for (const client of activeClients) {
-    try {
-      const result = await submitWeeklyBrief({
-        clientId: client.id,
-        weekStart,
-        rawIdeas: "",
-        promotions: "",
-        events: "",
-        additionalInstructions: "",
-      });
-      results.push({
-        clientId: client.id,
-        clientName: client.name,
-        weekStart,
-        status: result.generatedCount > 0 ? "generated" : "skipped",
-        detail: result.message,
-      });
-    } catch (err) {
-      const detail = err instanceof GenerationError ? err.message : "Unexpected error while generating.";
-      results.push({ clientId: client.id, clientName: client.name, weekStart, status: "failed", detail });
-    }
-  }
-  return results;
+  // Concurrently: each calendar can take over a minute, and running clients
+  // one after another would hit the route's maxDuration as clients are added.
+  return Promise.all(
+    activeClients.map(async (client): Promise<AutoBriefResult> => {
+      try {
+        const result = await submitWeeklyBrief({
+          clientId: client.id,
+          weekStart,
+          rawIdeas: "",
+          promotions: "",
+          events: "",
+          additionalInstructions: "",
+        });
+        return {
+          clientId: client.id,
+          clientName: client.name,
+          weekStart,
+          status: result.generatedCount > 0 ? "generated" : "skipped",
+          detail: result.message,
+        };
+      } catch (err) {
+        console.error(`Weekly plan generation failed for client "${client.name}" (week ${weekStart}):`, err);
+        const detail = err instanceof GenerationError ? err.message : "Unexpected error while generating.";
+        return { clientId: client.id, clientName: client.name, weekStart, status: "failed", detail };
+      }
+    }),
+  );
 }

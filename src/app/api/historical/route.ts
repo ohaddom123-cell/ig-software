@@ -7,6 +7,9 @@ import { jsonError, zodError } from "@/lib/api-utils";
 import { GenerationError } from "@/lib/generation/generateWeeklyCalendar";
 import { submitWeeklyBrief } from "@/lib/generation/submitWeeklyBrief";
 
+// A full week's calendar with adaptive thinking can take well over a minute.
+export const maxDuration = 300;
+
 const historicalInputSchema = z.object({
   clientId: z.string().uuid(),
   weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "weekStart must be YYYY-MM-DD"),

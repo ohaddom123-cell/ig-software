@@ -6,11 +6,11 @@ import { createTestClient, addSchedule } from "./helpers";
 // happy-path mock in weekly-brief-auto.test.ts.
 vi.mock("@/lib/anthropic", () => ({
   getAnthropicClient: () => ({
-    messages: {
+    beta: { messages: {
       create: vi.fn().mockRejectedValue(new Error("simulated API outage")),
-    },
+    } },
   }),
-  GENERATION_MODEL: "claude-sonnet-4-5",
+  GENERATION_MODEL: "claude-sonnet-5-5",
 }));
 
 const { generateDueWeeklyBriefs } = await import("@/lib/generation/generateDueWeeklyBriefs");

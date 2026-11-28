@@ -11,7 +11,7 @@ import { createTestClient, addSchedule } from "./helpers";
 // always exactly one slot (index 0) to respond to.
 vi.mock("@/lib/anthropic", () => ({
   getAnthropicClient: () => ({
-    messages: {
+    beta: { messages: {
       create: vi.fn().mockImplementation(async () => ({
         content: [
           {
@@ -33,9 +33,9 @@ vi.mock("@/lib/anthropic", () => ({
           },
         ],
       })),
-    },
+    } },
   }),
-  GENERATION_MODEL: "claude-sonnet-4-5",
+  GENERATION_MODEL: "claude-sonnet-5-5",
 }));
 
 const { submitWeeklyBrief } = await import("@/lib/generation/submitWeeklyBrief");
