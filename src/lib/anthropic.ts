@@ -20,4 +20,4 @@ export function getAnthropicClient(): Anthropic {
   return client;
 }
 
-export const GENERATION_MODEL = "claude-sonnet-4-5";
+export const GENERATION_MODEL = "claude-sonnet-5-5";

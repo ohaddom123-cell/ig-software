@@ -9,7 +9,7 @@ import { createTestClient, addSchedule } from "./helpers";
 // runs for real.
 vi.mock("@/lib/anthropic", () => ({
   getAnthropicClient: () => ({
-    messages: {
+    beta: { messages: {
       create: vi.fn().mockImplementation(async () => ({
         content: [
           {
@@ -31,9 +31,9 @@ vi.mock("@/lib/anthropic", () => ({
           },
         ],
       })),
-    },
+    } },
   }),
-  GENERATION_MODEL: "claude-sonnet-4-5",
+  GENERATION_MODEL: "claude-sonnet-5-5",
 }));
 
 const { generateDueWeeklyBriefs, nextWeekStart } = await import("@/lib/generation/generateDueWeeklyBriefs");

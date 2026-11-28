@@ -1,6 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { generateDueWeeklyBriefs } from "@/lib/generation/generateDueWeeklyBriefs";
 
+// Generates one calendar per client sequentially, each of which can take
+// well over a minute with adaptive thinking.
+export const maxDuration = 300;
+
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   const expected = process.env.CRON_SECRET;

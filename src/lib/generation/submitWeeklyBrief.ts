@@ -54,11 +54,13 @@ export async function submitWeeklyBrief(input: BriefInput): Promise<SubmitBriefR
     existingBrief.events === input.events &&
     existingBrief.additionalInstructions === input.additionalInstructions;
 
-  if (isIdenticalResubmission) {
-    const existingItems = await db
-      .select()
-      .from(contentItems)
-      .where(eq(contentItems.briefId, existingBrief.id));
+  const existingItems = existingBrief
+    ? await db.select().from(contentItems).where(eq(contentItems.briefId, existingBrief.id))
+    : [];
+
+  // A brief whose generation failed is saved with no items; resubmitting it
+  // unchanged has to retry generation, not no-op.
+  if (isIdenticalResubmission && existingItems.length > 0) {
     return {
       briefId: existingBrief.id,
       regenerated: false,
@@ -83,10 +85,6 @@ export async function submitWeeklyBrief(input: BriefInput): Promise<SubmitBriefR
   }));
 
   const allSlots = computeSlotsForWeek(input.weekStart, rules, client.timezone);
-
-  const existingItems = existingBrief
-    ? await db.select().from(contentItems).where(eq(contentItems.briefId, briefId))
-    : [];
 
   const lockedItems = existingItems.filter(
     (i) => i.approvalStatus === "approved" || i.approvalStatus === "posted",
